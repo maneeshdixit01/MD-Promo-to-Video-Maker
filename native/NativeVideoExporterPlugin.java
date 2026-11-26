@@ -21,6 +21,7 @@ import android.view.Surface;
 import android.opengl.EGL14;
 import android.opengl.EGLExt;
 import android.opengl.GLES20;
+import android.opengl.GLUtils;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -284,7 +285,7 @@ public class NativeVideoExporterPlugin extends Plugin {
 
                 renderer.draw(
                     bitmaps[sceneIndex],
-                    presentationTime
+                    presentationTime * 1000L
                 );
 
                 drainEncoder(
@@ -607,6 +608,8 @@ public class NativeVideoExporterPlugin extends Plugin {
         private int textureHandle;
         private int samplerHandle;
 
+        private boolean textureInitialized = false;
+
         private final int width;
         private final int height;
 
@@ -781,8 +784,4 @@ public class NativeVideoExporterPlugin extends Plugin {
             GLES20.glTexParameteri(
                 GLES20.GL_TEXTURE_2D,
                 GLES20.GL_TEXTURE_MAG_FILTER,
-                GLES20.GL_LINEAR
-            );
-
-            GLES20.glPixelStorei(
-         
+                
