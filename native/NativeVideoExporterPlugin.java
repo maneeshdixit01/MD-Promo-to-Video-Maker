@@ -784,4 +784,4 @@ public class NativeVideoExporterPlugin extends Plugin {
             GLES20.glTexParameteri(
                 GLES20.GL_TEXTURE_2D,
                 GLES20.GL_TEXTURE_MAG_FILTER,
-                
+                    
