@@ -16,6 +16,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.view.Surface;
 
 import android.opengl.EGL14;
 import android.opengl.EGLExt;
@@ -24,8 +25,8 @@ import android.opengl.GLES20;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.JSObject;
 import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONObject;
@@ -36,22 +37,23 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
 
-import android.view.Surface;
-
 @CapacitorPlugin(name = "NativeVideoExporter")
 public class NativeVideoExporterPlugin extends Plugin {
 
-    private static final int FPS = 30;
-    private static final int DURATION_SECONDS = 30;
-    private static final int TOTAL_FRAMES = FPS * DURATION_SECONDS;
-
     private static final String MIME = "video/avc";
+    private static final int FPS = 30;
+    private static final int TOTAL_FRAMES = 900;
+
+    private static class MuxState {
+        int track = -1;
+        boolean started = false;
+    }
 
     @PluginMethod
     public void exportVideo(PluginCall call) {
 
         if (Build.VERSION.SDK_INT < 29) {
-            call.reject("Android 10 या उससे नया संस्करण आवश्यक है।");
+            call.reject("Android 10 या नया संस्करण आवश्यक है।");
             return;
         }
 
@@ -66,48 +68,40 @@ public class NativeVideoExporterPlugin extends Plugin {
         int width = format.equals("16:9") ? 1280 : 720;
         int height = format.equals("16:9") ? 720 : 1280;
 
-        getActivity().runOnUiThread(() -> {
-            call.setKeepAlive(true);
-        });
-
         new Thread(() -> {
-            Uri savedUri = null;
+            Uri uri = null;
 
             try {
-                ArrayList<String[]> sceneData = new ArrayList<>();
+                ArrayList<String[]> data = new ArrayList<>();
 
                 for (int i = 0; i < scenes.length(); i++) {
                     JSONObject obj = scenes.getJSONObject(i);
 
-                    sceneData.add(new String[]{
+                    data.add(new String[]{
                         obj.optString("title", "Scene " + (i + 1)),
                         obj.optString("text", "")
                     });
                 }
 
-                savedUri = createVideo(
-                    width,
-                    height,
-                    sceneData
-                );
+                uri = createVideo(width, height, data);
 
                 JSObject result = new JSObject();
                 result.put("success", true);
-                result.put("uri", savedUri.toString());
+                result.put("uri", uri.toString());
                 result.put("message", "वीडियो Gallery में सेव हो गई।");
 
                 call.resolve(result);
 
             } catch (Exception e) {
 
-                if (savedUri != null) {
+                if (uri != null) {
                     try {
                         getContext().getContentResolver()
-                            .delete(savedUri, null, null);
+                            .delete(uri, null, null);
                     } catch (Exception ignored) {}
                 }
 
-                call.reject("वीडियो नहीं बन सकी: " + e.getMessage());
+                call.reject("वीडियो Export असफल: " + e.getMessage());
             }
 
         }).start();
@@ -120,22 +114,23 @@ public class NativeVideoExporterPlugin extends Plugin {
     ) throws Exception {
 
         ContentValues values = new ContentValues();
+
         values.put(
             MediaStore.Video.Media.DISPLAY_NAME,
             "MD_Promo_" + System.currentTimeMillis() + ".mp4"
         );
+
         values.put(
             MediaStore.Video.Media.MIME_TYPE,
             "video/mp4"
         );
+
         values.put(
             MediaStore.Video.Media.RELATIVE_PATH,
             Environment.DIRECTORY_MOVIES + "/MD Promo"
         );
-        values.put(
-            MediaStore.Video.Media.IS_PENDING,
-            1
-        );
+
+        values.put(MediaStore.Video.Media.IS_PENDING, 1);
 
         Uri uri = getContext().getContentResolver().insert(
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -146,34 +141,46 @@ public class NativeVideoExporterPlugin extends Plugin {
             throw new Exception("Gallery में फाइल नहीं बन सकी।");
         }
 
-        try (
+        try {
             android.os.ParcelFileDescriptor pfd =
                 getContext().getContentResolver()
-                    .openFileDescriptor(uri, "w")
-        ) {
+                    .openFileDescriptor(uri, "w");
+
             if (pfd == null) {
-                throw new Exception("Video file नहीं खुल सकी।");
+                throw new Exception("Video file नहीं खुली।");
             }
 
-            encode(
-                pfd.getFileDescriptor(),
-                width,
-                height,
-                scenes
+            try {
+                encode(
+                    pfd.getFileDescriptor(),
+                    width,
+                    height,
+                    scenes
+                );
+            } finally {
+                pfd.close();
+            }
+
+            ContentValues done = new ContentValues();
+            done.put(MediaStore.Video.Media.IS_PENDING, 0);
+
+            getContext().getContentResolver().update(
+                uri,
+                done,
+                null,
+                null
             );
+
+            return uri;
+
+        } catch (Exception e) {
+            getContext().getContentResolver().delete(
+                uri,
+                null,
+                null
+            );
+            throw e;
         }
-
-        ContentValues done = new ContentValues();
-        done.put(MediaStore.Video.Media.IS_PENDING, 0);
-
-        getContext().getContentResolver().update(
-            uri,
-            done,
-            null,
-            null
-        );
-
-        return uri;
     }
 
     private void encode(
@@ -188,20 +195,21 @@ public class NativeVideoExporterPlugin extends Plugin {
         Surface inputSurface = null;
         EGLRenderer renderer = null;
 
-        boolean muxerStarted = false;
-        boolean encoderDone = false;
-        int trackIndex = -1;
+        MuxState state = new MuxState();
 
-        MediaCodec.BufferInfo bufferInfo =
+        MediaCodec.BufferInfo info =
             new MediaCodec.BufferInfo();
+
+        Bitmap[] bitmaps = new Bitmap[5];
 
         try {
 
-            MediaFormat mediaFormat = MediaFormat.createVideoFormat(
-                MIME,
-                width,
-                height
-            );
+            MediaFormat mediaFormat =
+                MediaFormat.createVideoFormat(
+                    MIME,
+                    width,
+                    height
+                );
 
             mediaFormat.setInteger(
                 MediaFormat.KEY_COLOR_FORMAT,
@@ -247,14 +255,13 @@ public class NativeVideoExporterPlugin extends Plugin {
                 height
             );
 
-            Bitmap[] sceneBitmaps = new Bitmap[5];
-
             for (int i = 0; i < 5; i++) {
+
                 String[] scene = scenes.get(
                     Math.min(i, scenes.size() - 1)
                 );
 
-                sceneBitmaps[i] = makeSceneBitmap(
+                bitmaps[i] = makeSceneBitmap(
                     width,
                     height,
                     scene[0],
@@ -269,128 +276,53 @@ public class NativeVideoExporterPlugin extends Plugin {
 
                 int sceneIndex = Math.min(
                     4,
-                    frame / (TOTAL_FRAMES / 5)
+                    frame / 180
                 );
 
+                long presentationTime =
+                    frame * frameDuration;
+
                 renderer.draw(
-                    sceneBitmaps[sceneIndex],
-                    frame * frameDuration
+                    bitmaps[sceneIndex],
+                    presentationTime
                 );
 
                 drainEncoder(
                     encoder,
                     muxer,
-                    bufferInfo,
-                    false,
-                    new int[]{trackIndex},
-                    new boolean[]{muxerStarted}
-                );
-
-                if (trackIndex == -1 && encoder.getOutputFormat() != null) {
-                    // Track index is obtained on INFO_OUTPUT_FORMAT_CHANGED.
-                }
-
-                MediaCodec.BufferInfo info =
-                    new MediaCodec.BufferInfo();
-
-                int outputIndex = encoder.dequeueOutputBuffer(
                     info,
-                    0
+                    state,
+                    false
                 );
-
-                if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    if (muxerStarted) {
-                        throw new Exception("Encoder format दोबारा बदला।");
-                    }
-
-                    trackIndex = muxer.addTrack(
-                        encoder.getOutputFormat()
-                    );
-
-                    muxer.start();
-                    muxerStarted = true;
-
-                } else if (outputIndex >= 0) {
-
-                    ByteBuffer output = encoder.getOutputBuffer(
-                        outputIndex
-                    );
-
-                    if (output != null && info.size > 0 && muxerStarted) {
-                        output.position(info.offset);
-                        output.limit(info.offset + info.size);
-
-                        muxer.writeSampleData(
-                            trackIndex,
-                            output,
-                            info
-                        );
-                    }
-
-                    encoder.releaseOutputBuffer(
-                        outputIndex,
-                        false
-                    );
-                }
             }
 
             encoder.signalEndOfInputStream();
 
-            while (!encoderDone) {
+            boolean endReached = false;
 
-                int index = encoder.dequeueOutputBuffer(
-                    bufferInfo,
-                    10_000
+            while (!endReached) {
+                endReached = drainEncoder(
+                    encoder,
+                    muxer,
+                    info,
+                    state,
+                    true
                 );
-
-                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-
-                    if (!muxerStarted) {
-                        trackIndex = muxer.addTrack(
-                            encoder.getOutputFormat()
-                        );
-
-                        muxer.start();
-                        muxerStarted = true;
-                    }
-
-                } else if (index >= 0) {
-
-                    ByteBuffer output = encoder.getOutputBuffer(index);
-
-                    if (
-                        output != null &&
-                        bufferInfo.size > 0 &&
-                        muxerStarted
-                    ) {
-                        output.position(bufferInfo.offset);
-                        output.limit(
-                            bufferInfo.offset + bufferInfo.size
-                        );
-
-                        muxer.writeSampleData(
-                            trackIndex,
-                            output,
-                            bufferInfo
-                        );
-                    }
-
-                    if (
-                        (bufferInfo.flags &
-                        MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
-                    ) {
-                        encoderDone = true;
-                    }
-
-                    encoder.releaseOutputBuffer(index, false);
-                }
             }
 
-            for (Bitmap bitmap : sceneBitmaps) {
-                if (bitmap != null) bitmap.recycle();
+            if (!state.started) {
+                throw new Exception(
+                    "Encoder ने कोई वीडियो Track नहीं बनाया।"
+                );
             }
 
         } finally {
+
+            for (Bitmap bitmap : bitmaps) {
+                if (bitmap != null && !bitmap.isRecycled()) {
+                    bitmap.recycle();
+                }
+            }
 
             if (renderer != null) {
                 renderer.release();
@@ -410,7 +342,9 @@ public class NativeVideoExporterPlugin extends Plugin {
 
             if (muxer != null) {
                 try {
-                    if (muxerStarted) muxer.stop();
+                    if (state.started) {
+                        muxer.stop();
+                    }
                 } catch (Exception ignored) {}
 
                 muxer.release();
@@ -418,15 +352,81 @@ public class NativeVideoExporterPlugin extends Plugin {
         }
     }
 
-    private void drainEncoder(
+    private boolean drainEncoder(
         MediaCodec encoder,
         MediaMuxer muxer,
         MediaCodec.BufferInfo info,
-        boolean end,
-        int[] track,
-        boolean[] started
-    ) {
-        // Output is drained during the encoding loop.
+        MuxState state,
+        boolean waitForEnd
+    ) throws Exception {
+
+        while (true) {
+
+            int index = encoder.dequeueOutputBuffer(
+                info,
+                waitForEnd ? 10000 : 0
+            );
+
+            if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                return false;
+            }
+
+            if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+
+                if (state.started) {
+                    throw new Exception(
+                        "Encoder output format दोबारा बदला।"
+                    );
+                }
+
+                state.track = muxer.addTrack(
+                    encoder.getOutputFormat()
+                );
+
+                muxer.start();
+                state.started = true;
+
+                continue;
+            }
+
+            if (index >= 0) {
+
+                ByteBuffer output =
+                    encoder.getOutputBuffer(index);
+
+                boolean isEnd =
+                    (info.flags &
+                    MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+
+                try {
+
+                    if (
+                        output != null &&
+                        info.size > 0 &&
+                        state.started &&
+                        (info.flags &
+                        MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0
+                    ) {
+
+                        output.position(info.offset);
+                        output.limit(info.offset + info.size);
+
+                        muxer.writeSampleData(
+                            state.track,
+                            output,
+                            info
+                        );
+                    }
+
+                } finally {
+                    encoder.releaseOutputBuffer(index, false);
+                }
+
+                if (isEnd) {
+                    return true;
+                }
+            }
+        }
     }
 
     private Bitmap makeSceneBitmap(
@@ -444,7 +444,6 @@ public class NativeVideoExporterPlugin extends Plugin {
         );
 
         Canvas canvas = new Canvas(bitmap);
-
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         paint.setShader(new LinearGradient(
@@ -493,12 +492,15 @@ public class NativeVideoExporterPlugin extends Plugin {
         );
 
         paint.setColor(Color.WHITE);
-        paint.setTypeface(android.graphics.Typeface.create(
-            "sans-serif",
-            android.graphics.Typeface.BOLD
-        ));
-
         paint.setTextAlign(Paint.Align.CENTER);
+
+        paint.setTypeface(
+            android.graphics.Typeface.create(
+                "sans-serif",
+                android.graphics.Typeface.BOLD
+            )
+        );
+
         paint.setTextSize(width * 0.075f);
 
         canvas.drawText(
@@ -508,10 +510,12 @@ public class NativeVideoExporterPlugin extends Plugin {
             paint
         );
 
-        paint.setTypeface(android.graphics.Typeface.create(
-            "sans-serif-medium",
-            android.graphics.Typeface.NORMAL
-        ));
+        paint.setTypeface(
+            android.graphics.Typeface.create(
+                "sans-serif-medium",
+                android.graphics.Typeface.NORMAL
+            )
+        );
 
         paint.setTextSize(width * 0.047f);
 
@@ -527,7 +531,9 @@ public class NativeVideoExporterPlugin extends Plugin {
 
         paint.setColor(Color.rgb(251, 191, 36));
         paint.setTextSize(width * 0.045f);
-        paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        paint.setTypeface(
+            android.graphics.Typeface.DEFAULT_BOLD
+        );
 
         canvas.drawText(
             "MD PROMO  •  " + number + "/5",
@@ -559,7 +565,10 @@ public class NativeVideoExporterPlugin extends Plugin {
                 ? word
                 : line + " " + word;
 
-            if (paint.measureText(test) > maxWidth && !line.isEmpty()) {
+            if (
+                paint.measureText(test) > maxWidth &&
+                !line.isEmpty()
+            ) {
 
                 canvas.drawText(
                     line,
@@ -627,17 +636,21 @@ public class NativeVideoExporterPlugin extends Plugin {
             vertices.put(data);
             vertices.position(0);
 
-            display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+            display = EGL14.eglGetDisplay(
+                EGL14.EGL_DEFAULT_DISPLAY
+            );
 
             int[] version = new int[2];
 
-            EGL14.eglInitialize(
+            if (!EGL14.eglInitialize(
                 display,
                 version,
                 0,
                 version,
                 1
-            );
+            )) {
+                throw new Exception("EGL initialize failed");
+            }
 
             int[] configAttributes = {
                 EGL14.EGL_RENDERABLE_TYPE,
@@ -664,8 +677,8 @@ public class NativeVideoExporterPlugin extends Plugin {
                 1,
                 count,
                 0
-            )) {
-                throw new Exception("EGL configuration failed");
+            ) || count[0] == 0) {
+                throw new Exception("EGL config failed");
             }
 
             int[] contextAttributes = {
@@ -694,12 +707,23 @@ public class NativeVideoExporterPlugin extends Plugin {
                 0
             );
 
-            EGL14.eglMakeCurrent(
+            if (
+                context == null ||
+                surface == null ||
+                context == EGL14.EGL_NO_CONTEXT ||
+                surface == EGL14.EGL_NO_SURFACE
+            ) {
+                throw new Exception("EGL surface creation failed");
+            }
+
+            if (!EGL14.eglMakeCurrent(
                 display,
                 surface,
                 surface,
                 context
-            );
+            )) {
+                throw new Exception("EGL make current failed");
+            }
 
             String vertexShader =
                 "attribute vec4 aPosition;" +
@@ -757,4 +781,8 @@ public class NativeVideoExporterPlugin extends Plugin {
             GLES20.glTexParameteri(
                 GLES20.GL_TEXTURE_2D,
                 GLES20.GL_TEXTURE_MAG_FILTER,
-   
+                GLES20.GL_LINEAR
+            );
+
+            GLES20.glPixelStorei(
+         
