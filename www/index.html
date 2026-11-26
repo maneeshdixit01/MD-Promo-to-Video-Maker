@@ -1,60 +1,83 @@
-<!doctype html>
+
+<!DOCTYPE html>
 <html lang="hi">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#101827">
   <title>MD Promo to Video Maker</title>
   <link rel="stylesheet" href="src/style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand-mark">MD</div>
-    <div><strong>MD Promo</strong><small>Promo to Video Maker</small></div>
-    <span class="offline-pill"><i></i> Smart Engine Ready</span>
-  </header>
-
-  <main>
-    <section class="hero">
-      <p class="eyebrow">AI + OFFLINE VIDEO STUDIO</p>
-      <h1>एक आइडिया लिखें,<br><em>वीडियो तैयार करें।</em></h1>
-      <p class="sub">Gemini मदद करेगा तो बेहतर बनाएगा। Gemini उपलब्ध न हो, तब भी हमारा Smart Engine काम करेगा।</p>
-    </section>
-
-    <section class="panel">
-      <label for="prompt">आप किस तरह की वीडियो बनाना चाहते हैं?</label>
-      <textarea id="prompt" rows="4" placeholder="उदाहरण: मेरे कपड़ों के शोरूम के लिए 30 सेकंड की आकर्षक हिंदी विज्ञापन वीडियो बनाओ..."></textarea>
-      <div class="settings-grid">
-        <div><label for="format">वीडियो फॉर्मेट</label><select id="format"><option value="9:16">रील / स्टेटस (9:16)</option><option value="16:9">YouTube / स्क्रीन (16:9)</option></select></div>
-        <div><label for="language">भाषा</label><select id="language"><option value="hi-IN">हिंदी</option><option value="en-US">English</option><option value="hi-IN,en-US">हिंदी + English</option></select></div>
+  <main class="container">
+    <header class="header">
+      <div class="logo">MD</div>
+      <div>
+        <h1>MD Promo to Video Maker</h1>
+        <p>अपना प्रोमो वीडियो तैयार करें</p>
       </div>
-      <button id="makeBtn" class="primary">✨ वीडियो की योजना बनाएँ</button>
-      <p id="engineStatus" class="status">Smart Offline Engine तैयार है।</p>
+    </header>
+
+    <section class="panel">
+      <h2>वीडियो की जानकारी</h2>
+
+      <label for="prompt">आप किस विषय पर वीडियो बनाना चाहते हैं?</label>
+      <textarea id="prompt" rows="5" placeholder="उदाहरण: मेरी दुकान के लिए आकर्षक विज्ञापन वीडियो बनाएं।"></textarea>
+
+      <div class="form-grid">
+        <div>
+          <label for="format">वीडियो फॉर्मेट</label>
+          <select id="format">
+            <option value="9:16">9:16 - Instagram Reel</option>
+            <option value="16:9">16:9 - YouTube</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="language">भाषा</label>
+          <select id="language">
+            <option value="hi-IN">हिंदी</option>
+            <option value="en-US">English</option>
+            <option value="hi-IN,en-US">हिंदी + English</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="makeBtn" class="primary">✨ वीडियो स्टोरीबोर्ड बनाएं</button>
+      <p id="engineStatus" class="status">ऑफलाइन वीडियो इंजन तैयार है।</p>
     </section>
 
     <section class="panel">
-      <div class="section-head"><div><h2>आपकी मीडिया लाइब्रेरी</h2><p>अपने फोटो और वीडियो चुनें</p></div><span class="count" id="mediaCount">0 फाइल</span></div>
-      <label class="upload">
-        <span class="upload-icon">＋</span><span><b>फोटो / वीडियो जोड़ें</b><small>फोन से एक या अधिक फाइल चुनें</small></span>
-        <input id="mediaInput" type="file" accept="image/*,video/*" multiple>
+      <h2>फोटो और वीडियो जोड़ें</h2>
+      <label for="mediaInput" class="upload-box">
+        <span class="upload-icon">＋</span>
+        <strong>फोटो / वीडियो चुनें</strong>
+        <small>अपने मोबाइल से मीडिया चुनें</small>
       </label>
+      <input id="mediaInput" type="file" accept="image/*,video/*" multiple hidden>
+      <p id="mediaCount" class="hint">अभी कोई मीडिया नहीं चुना गया है।</p>
       <div id="mediaGrid" class="media-grid"></div>
     </section>
 
-    <section class="panel" id="scenesPanel">
-      <div class="section-head"><div><h2>वीडियो स्टोरीबोर्ड</h2><p>बनाए गए सीन यहाँ दिखाई देंगे</p></div><span class="count">30 सेकंड</span></div>
-      <div id="scenes" class="empty">पहले ऊपर अपना आइडिया लिखकर “वीडियो की योजना बनाएँ” दबाएँ।</div>
-      <button id="exportBtn" class="secondary" disabled>MP4 वीडियो एक्सपोर्ट (अगले चरण में सक्रिय होगा)</button>
-      <p class="hint">इस शुरुआती संस्करण में स्टोरीबोर्ड और मीडिया चयन काम करते हैं। Native MP4 Export को अगले चरण में Android MediaCodec/MediaMuxer के साथ जोड़ा जाएगा।</p>
+    <section class="panel">
+      <h2>वीडियो स्टोरीबोर्ड</h2>
+      <div id="scenesPanel">
+        <p class="hint">पहले वीडियो की जानकारी भरकर स्टोरीबोर्ड बनाएं।</p>
+      </div>
+      <div id="scenes" class="scenes"></div>
+
+      <button id="exportBtn" class="secondary" disabled>
+        🎬 MP4 वीडियो एक्सपोर्ट करें
+      </button>
+      <p class="hint">5 स्टोरीबोर्ड सीन से 30 सेकंड की MP4 वीडियो तैयार होगी।</p>
     </section>
 
-    <section class="panel ai-panel">
-      <div class="section-head"><div><h2>Gemini AI सहायता</h2><p>वैकल्पिक AI कनेक्शन</p></div><span class="ai-tag">OPTIONAL</span></div>
-      <p class="hint">Gemini API को सुरक्षित तरीके से जोड़ने के लिए अलग सुरक्षित कनेक्शन सेटअप चाहिए। केवल Google/Gemini अकाउंट में लॉगिन करने से Gemini Pro की उपभोक्ता सदस्यता का API उपयोग अपने-आप उपलब्ध नहीं होता। अभी ऐप Offline Smart Engine से काम कर सकता है।</p>
-      <div class="notice">अगले चरण में सुरक्षित API कनेक्शन और Gemini विफल होने पर स्वतः fallback जोड़ा जाएगा। API key को सार्वजनिक APK या GitHub कोड में हार्डकोड नहीं किया जाएगा।</div>
-    </section>
+    <footer>
+      <p>MD Promo to Video Maker</p>
+      <small>Offline-first Android video maker</small>
+    </footer>
   </main>
-  <footer>MD Promo to Video Maker · Offline-first Android App</footer>
+
   <script src="src/app.js"></script>
 </body>
 </html>
