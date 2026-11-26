@@ -1,10 +1,16 @@
-
 const $ = (id) => document.getElementById(id);
+
 const mediaFiles = [];
+let activeScenes = [];
+
+const NativeVideoExporter = window.Capacitor?.registerPlugin
+  ? window.Capacitor.registerPlugin("NativeVideoExporter")
+  : null;
 
 function makeScenes(prompt, language) {
   const p = prompt.trim();
   const isEnglish = language === "en-US";
+
   const words = p.split(/\s+/).filter(Boolean);
   const subject = words.length > 12
     ? words.slice(0, 12).join(" ") + "…"
@@ -54,22 +60,28 @@ function escapeHtml(value) {
   );
 }
 
+// Create storyboard
 $("makeBtn").addEventListener("click", () => {
   const prompt = $("prompt").value.trim();
 
   if (!prompt) {
-    $("engineStatus").textContent = "पहले वीडियो का आइडिया लिखें।";
+    $("engineStatus").textContent =
+      "पहले वीडियो का आइडिया लिखें।";
     $("prompt").focus();
     return;
   }
 
   const language = $("language").value;
-  const scenes = makeScenes(prompt, language);
 
-  renderScenes(scenes);
+  activeScenes = makeScenes(prompt, language);
+
+  renderScenes(activeScenes);
+
+  $("exportBtn").disabled = false;
+  $("exportBtn").textContent = "🎬 MP4 वीडियो एक्सपोर्ट करें";
 
   $("engineStatus").textContent =
-    "Smart Offline Engine ने 5 सीन की योजना तैयार की है। Gemini कनेक्शन उपलब्ध न होने पर भी काम जारी रहेगा।";
+    "Smart Offline Engine ने 5 सीन की योजना तैयार कर दी है।";
 
   $("scenesPanel").scrollIntoView({
     behavior: "smooth",
@@ -77,22 +89,97 @@ $("makeBtn").addEventListener("click", () => {
   });
 });
 
+// Export MP4 video
+$("exportBtn").addEventListener("click", async () => {
+
+  if (!activeScenes.length) {
+    $("engineStatus").textContent =
+      "पहले वीडियो की योजना बनाएँ।";
+    return;
+  }
+
+  if (!window.Capacitor?.isNativePlatform?.()) {
+    $("engineStatus").textContent =
+      "MP4 Export के लिए Android APK इस्तेमाल करें।";
+    return;
+  }
+
+  if (!NativeVideoExporter) {
+    $("engineStatus").textContent =
+      "Native Video Exporter उपलब्ध नहीं है। APK दोबारा Build करें।";
+    return;
+  }
+
+  $("exportBtn").disabled = true;
+  $("exportBtn").textContent = "⏳ वीडियो तैयार हो रही है...";
+  $("engineStatus").textContent =
+    "कृपया प्रतीक्षा करें। 30 सेकंड की MP4 वीडियो बनाई जा रही है।";
+
+  try {
+
+    const scenes = activeScenes.map(scene => ({
+      title: scene[0],
+      text: scene[1]
+    }));
+
+    const result = await NativeVideoExporter.exportVideo({
+      format: $("format").value,
+      scenes: scenes
+    });
+
+    if (!result || !result.success) {
+      throw new Error(
+        result?.message || "वीडियो Export नहीं हो सकी।"
+      );
+    }
+
+    $("engineStatus").textContent =
+      "✅ " + (result.message || "वीडियो Gallery में सेव हो गई।");
+
+    $("exportBtn").textContent =
+      "🎬 दोबारा MP4 Export करें";
+
+  } catch (error) {
+
+    console.error("Video Export Error:", error);
+
+    $("engineStatus").textContent =
+      "वीडियो Export असफल: " +
+      (error?.message || "अज्ञात समस्या");
+
+    $("exportBtn").textContent =
+      "🔄 फिर से कोशिश करें";
+
+  } finally {
+    $("exportBtn").disabled = false;
+  }
+});
+
+// Select photos and videos
 $("mediaInput").addEventListener("change", (event) => {
+
   const selected = Array.from(event.target.files || []);
 
   selected.forEach(file => {
+
     if (
       !file.type.startsWith("image/") &&
       !file.type.startsWith("video/")
     ) return;
 
     const url = URL.createObjectURL(file);
-    mediaFiles.push({ file, url });
+
+    mediaFiles.push({
+      file,
+      url
+    });
   });
 
-  $("mediaCount").textContent = `${mediaFiles.length} फाइल`;
+  $("mediaCount").textContent =
+    `${mediaFiles.length} फाइल`;
 
   $("mediaGrid").innerHTML = mediaFiles.map(item => {
+
     const tag = item.file.type.startsWith("video/")
       ? "video"
       : "img";
@@ -104,8 +191,11 @@ $("mediaInput").addEventListener("change", (event) => {
       </div>
     `;
   }).join("");
+
 });
 
 window.addEventListener("beforeunload", () => {
-  mediaFiles.forEach(item => URL.revokeObjectURL(item.url));
+  mediaFiles.forEach(item => {
+    URL.revokeObjectURL(item.url);
+  });
 });
