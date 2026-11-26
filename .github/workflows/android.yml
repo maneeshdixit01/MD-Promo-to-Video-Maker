@@ -1,3 +1,4 @@
+
 name: Build MD Promo to Video Maker APK
 
 on:
@@ -37,7 +38,13 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Build APK
+      - name: Install Native Exporter
+        run: |
+          mkdir -p android/app/src/main/java/com/md/promotovideomaker
+          cp native/NativeVideoExporterPlugin.java android/app/src/main/java/com/md/promotovideomaker/
+          cp native/MainActivity.java android/app/src/main/java/com/md/promotovideomaker/
+
+      - name: Build Android APK
         working-directory: android
         run: |
           chmod +x gradlew
@@ -46,7 +53,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MD-Promo-Video-Maker-APK
+          name: MD-Promo-Video-Maker-Phase2-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           
