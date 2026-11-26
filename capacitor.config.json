@@ -1,0 +1,6 @@
+{
+  "appId": "com.md.promotovideomaker",
+  "appName": "MD Promo to Video Maker",
+  "webDir": ".",
+  "bundledWebRuntime": false
+}

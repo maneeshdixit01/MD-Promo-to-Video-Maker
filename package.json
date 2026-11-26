@@ -1,0 +1,18 @@
+{
+  "name": "md-promo-to-video-maker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MD Promo to Video Maker - offline-first Android app",
+  "scripts": {
+    "build": "echo 'Static app: no bundling required'",
+    "android:init": "npx cap add android",
+    "android:sync": "npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/core": "^6.2.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.1"
+  }
+}
