@@ -781,7 +781,184 @@ public class NativeVideoExporterPlugin extends Plugin {
                 GLES20.GL_LINEAR
             );
 
-            GLES20.glTexParameteri(
+                            GLES20.GL_TEXTURE_MAG_FILTER,
+                GLES20.GL_LINEAR
+            );
+
+            GLES20.glBindTexture(
                 GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_MAG_FILTER,
-                    
+                0
+            );
+        }
+
+        void draw(
+            Bitmap bitmap,
+            long presentationTimeNs
+        ) throws Exception {
+
+            EGL14.eglMakeCurrent(
+                display,
+                surface,
+                surface,
+                context
+            );
+
+            GLES20.glViewport(0, 0, width, height);
+            GLES20.glUseProgram(program);
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+
+            GLES20.glBindTexture(
+                GLES20.GL_TEXTURE_2D,
+                texture
+            );
+
+            if (!textureInitialized) {
+                GLUtils.texImage2D(
+                    GLES20.GL_TEXTURE_2D,
+                    0,
+                    bitmap,
+                    0
+                );
+                textureInitialized = true;
+            } else {
+                GLUtils.texSubImage2D(
+                    GLES20.GL_TEXTURE_2D,
+                    0,
+                    0,
+                    0,
+                    bitmap
+                );
+            }
+
+            GLES20.glUniform1i(samplerHandle, 0);
+
+            vertices.position(0);
+            GLES20.glEnableVertexAttribArray(positionHandle);
+            GLES20.glVertexAttribPointer(
+                positionHandle, 2, GLES20.GL_FLOAT,
+                false, 16, vertices
+            );
+
+            vertices.position(2);
+            GLES20.glEnableVertexAttribArray(textureHandle);
+            GLES20.glVertexAttribPointer(
+                textureHandle, 2, GLES20.GL_FLOAT,
+                false, 16, vertices
+            );
+
+            GLES20.glDrawArrays(
+                GLES20.GL_TRIANGLE_STRIP, 0, 4
+            );
+
+            GLES20.glDisableVertexAttribArray(positionHandle);
+            GLES20.glDisableVertexAttribArray(textureHandle);
+
+            EGLExt.eglPresentationTimeANDROID(
+                display,
+                surface,
+                presentationTimeNs
+            );
+
+            EGL14.eglSwapBuffers(display, surface);
+        }
+
+        private int createProgram(
+            String vertexSource,
+            String fragmentSource
+        ) throws Exception {
+
+            int vertexShader = createShader(
+                GLES20.GL_VERTEX_SHADER,
+                vertexSource
+            );
+
+            int fragmentShader = createShader(
+                GLES20.GL_FRAGMENT_SHADER,
+                fragmentSource
+            );
+
+            int result = GLES20.glCreateProgram();
+
+            GLES20.glAttachShader(result, vertexShader);
+            GLES20.glAttachShader(result, fragmentShader);
+            GLES20.glLinkProgram(result);
+
+            int[] status = new int[1];
+
+            GLES20.glGetProgramiv(
+                result,
+                GLES20.GL_LINK_STATUS,
+                status,
+                0
+            );
+
+            GLES20.glDeleteShader(vertexShader);
+            GLES20.glDeleteShader(fragmentShader);
+
+            if (status[0] == 0) {
+                String error = GLES20.glGetProgramInfoLog(result);
+                GLES20.glDeleteProgram(result);
+                throw new Exception(error);
+            }
+
+            return result;
+        }
+
+        private int createShader(
+            int type,
+            String source
+        ) throws Exception {
+
+            int shader = GLES20.glCreateShader(type);
+            GLES20.glShaderSource(shader, source);
+            GLES20.glCompileShader(shader);
+
+            int[] status = new int[1];
+
+            GLES20.glGetShaderiv(
+                shader,
+                GLES20.GL_COMPILE_STATUS,
+                status,
+                0
+            );
+
+            if (status[0] == 0) {
+                String error = GLES20.glGetShaderInfoLog(shader);
+                GLES20.glDeleteShader(shader);
+                throw new Exception(error);
+            }
+
+            return shader;
+        }
+
+        void release() {
+
+            try {
+                EGL14.eglMakeCurrent(
+                    display,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_CONTEXT
+                );
+
+                if (texture != 0) {
+                    GLES20.glDeleteTextures(
+                        1,
+                        new int[]{texture},
+                        0
+                    );
+                }
+
+                if (program != 0) {
+                    GLES20.glDeleteProgram(program);
+                }
+
+                EGL14.eglDestroySurface(display, surface);
+                EGL14.eglDestroyContext(display, context);
+                EGL14.eglTerminate(display);
+
+            } catch (Exception ignored) {
+            }
+        }
+    }
+}
